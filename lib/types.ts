@@ -39,6 +39,7 @@ export interface Chemical {
   hazard_level: HazardLevel;
   category: string;
   description: string;
+  qr_token: string | null;
   created_at: string;
   updated_at: string;
 }

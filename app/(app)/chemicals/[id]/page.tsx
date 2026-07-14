@@ -22,8 +22,8 @@ import { SafetyTab } from '@/components/chemicals/safety-tab';
 import { getSupabase } from '@/lib/supabase/singleton';
 import { useAuth } from '@/lib/auth-context';
 import { canManageStock } from '@/lib/roles';
-import { formatDate, formatNumber } from '@/lib/expiry';
-import type { Chemical, Lot, StorageLocation } from '@/lib/types';
+import { formatDate, formatNumber, formatDateTime } from '@/lib/expiry';
+import type { Chemical, Lot, StorageLocation, StockMovement, Preparation } from '@/lib/types';
 import {
   BarChart,
   Bar,
@@ -61,20 +61,27 @@ export default function ChemicalDetailPage({ params }: { params: { id: string } 
   const [qrOpen, setQrOpen] = useState(false);
   const [usageRecords, setUsageRecords] = useState<UsageRecord[]>([]);
   const [uploadingLotId, setUploadingLotId] = useState<string | null>(null);
+  const [preparations, setPreparations] = useState<Preparation[]>([]);
+  const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
+  const [usageSlips, setUsageSlips] = useState<{ id: string; slip_number: string; slip_date: string; user_name: string; purpose: string; items: { chemical_name: string; quantity_used: number; unit: string }[] }[]>([]);
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   useEffect(() => {
     async function loadData() {
       const supabase = getSupabase();
-      const [{ data: chem }, { data: lotData }, { data: locData }, { data: prepItems }] = await Promise.all([
+      const [{ data: chem }, { data: lotData }, { data: locData }, { data: prepItems }, { data: prepData }, { data: movements }] = await Promise.all([
         supabase.from('chemicals').select('*').eq('id', id).maybeSingle(),
         supabase.from('lots').select('*').eq('chemical_id', id).order('received_date', { ascending: false }),
         supabase.from('storage_locations').select('*'),
         supabase.from('preparation_items').select('id, quantity_used, unit, created_at').eq('chemical_id', id),
+        supabase.from('preparations').select('*').order('created_at', { ascending: false }),
+        supabase.from('stock_movements').select('*').eq('chemical_id', id).order('created_at', { ascending: false }).limit(50),
       ]);
 
       setChemical(chem as Chemical | null);
       setLots((lotData || []) as Lot[]);
+      setPreparations((prepData || []) as Preparation[]);
+      setStockMovements((movements || []) as StockMovement[]);
 
       const locMap: Record<string, string> = {};
       (locData || []).forEach((l: StorageLocation) => { locMap[l.id] = l.name; });
@@ -82,15 +89,45 @@ export default function ChemicalDetailPage({ params }: { params: { id: string } 
 
       const lotIds = (lotData || []).map((l: Lot) => l.id);
       let allUsage: UsageRecord[] = [];
+      let slipItemsData: any[] = [];
       if (lotIds.length > 0) {
-        const { data: usageByLot } = await supabase
-          .from('usage_slip_items')
-          .select('id, quantity_used, unit, created_at')
-          .in('lot_id', lotIds);
+        const [{ data: usageByLot }, { data: slipItems }] = await Promise.all([
+          supabase
+            .from('usage_slip_items')
+            .select('id, quantity_used, unit, created_at')
+            .in('lot_id', lotIds),
+          supabase
+            .from('usage_slip_items')
+            .select('id, quantity_used, unit, created_at, usage_slip_id, chemical_name')
+            .in('lot_id', lotIds),
+        ]);
         allUsage = [...(usageByLot || [])];
+        slipItemsData = (slipItems || []) as any[];
       }
       allUsage = [...allUsage, ...(prepItems || [])];
       setUsageRecords(allUsage);
+
+      // Build usage slips list
+      if (slipItemsData && (slipItemsData as any[]).length > 0) {
+        const slipIds = Array.from(new Set((slipItemsData as any[]).map((s) => s.usage_slip_id).filter(Boolean)));
+        if (slipIds.length > 0) {
+          const { data: slipsData } = await supabase
+            .from('usage_slips')
+            .select('id, slip_number, slip_date, user_name, purpose')
+            .in('id', slipIds)
+            .order('slip_date', { ascending: false });
+          const slipMap: Record<string, any> = {};
+          (slipsData || []).forEach((s: any) => { slipMap[s.id] = s; });
+          const slipItemsMap: Record<string, { chemical_name: string; quantity_used: number; unit: string }[]> = {};
+          (slipItemsData as any[]).forEach((item) => {
+            const sid = item.usage_slip_id;
+            if (!sid) return;
+            if (!slipItemsMap[sid]) slipItemsMap[sid] = [];
+            slipItemsMap[sid].push({ chemical_name: item.chemical_name, quantity_used: item.quantity_used, unit: item.unit });
+          });
+          setUsageSlips(Object.entries(slipMap).map(([id, s]) => ({ id, slip_number: s.slip_number, slip_date: s.slip_date, user_name: s.user_name, purpose: s.purpose, items: slipItemsMap[id] || [] })));
+        }
+      }
       setLoading(false);
     }
     loadData();
@@ -267,6 +304,9 @@ export default function ChemicalDetailPage({ params }: { params: { id: string } 
           <TabsTrigger value="info">Thông tin & Lô</TabsTrigger>
           <TabsTrigger value="safety">An toàn & Hồ sơ</TabsTrigger>
           <TabsTrigger value="usage">Thống kê sử dụng</TabsTrigger>
+          <TabsTrigger value="preparations">Hồ sơ pha chế</TabsTrigger>
+          <TabsTrigger value="slips">Phiếu sử dụng</TabsTrigger>
+          <TabsTrigger value="history">Lịch sử nhập/xuất</TabsTrigger>
         </TabsList>
 
         <TabsContent value="info" className="space-y-6">
@@ -443,6 +483,135 @@ export default function ChemicalDetailPage({ params }: { params: { id: string } 
                     <UsageChart data={chartData.monthly} unit={chemical.unit} />
                   </TabsContent>
                 </Tabs>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="preparations">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Hồ sơ pha chế liên quan ({preparations.length})</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {preparations.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">Chưa có hồ sơ pha chế nào sử dụng hóa chất này</p>
+              ) : (
+                <div className="overflow-x-auto rounded-lg border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Mã pha chế</TableHead>
+                        <TableHead>Người pha</TableHead>
+                        <TableHead>Ngày tạo</TableHead>
+                        <TableHead>Trạng thái</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {preparations.map((p) => (
+                        <TableRow key={p.id}>
+                          <TableCell>
+                            <Link href={`/preparations`} className="font-mono text-xs text-primary hover:underline">
+                              {p.prep_number}
+                            </Link>
+                          </TableCell>
+                          <TableCell className="text-sm">{p.user_name || '—'}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground">{formatDate(p.created_at)}</TableCell>
+                          <TableCell>
+                            <Badge variant={p.status === 'completed' ? 'default' : p.status === 'draft' ? 'secondary' : 'outline'}>
+                              {p.status === 'completed' ? 'Hoàn thành' : p.status === 'draft' ? 'Nháp' : p.status}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="slips">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Phiếu sử dụng ({usageSlips.length})</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {usageSlips.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">Chưa có phiếu sử dụng nào</p>
+              ) : (
+                <div className="space-y-3">
+                  {usageSlips.map((slip) => (
+                    <div key={slip.id} className="rounded-lg border p-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <Link href={`/usage-slips`} className="font-mono text-sm font-medium text-primary hover:underline">
+                            {slip.slip_number}
+                          </Link>
+                          <p className="text-xs text-muted-foreground">{slip.purpose || '—'}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm">{slip.user_name || '—'}</p>
+                          <p className="text-xs text-muted-foreground">{formatDate(slip.slip_date)}</p>
+                        </div>
+                      </div>
+                      {slip.items.length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {slip.items.map((item, i) => (
+                            <Badge key={i} variant="outline" className="text-xs">
+                              {item.chemical_name}: {formatNumber(item.quantity_used)} {item.unit}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="history">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Lịch sử nhập/xuất/sử dụng ({stockMovements.length})</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {stockMovements.length === 0 ? (
+                <p className="py-8 text-center text-sm text-muted-foreground">Chưa có giao dịch nào</p>
+              ) : (
+                <div className="overflow-x-auto rounded-lg border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Loại</TableHead>
+                        <TableHead className="text-right">Số lượng</TableHead>
+                        <TableHead>Tham chiếu</TableHead>
+                        <TableHead>Người thực hiện</TableHead>
+                        <TableHead>Thời gian</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {stockMovements.map((m) => (
+                        <TableRow key={m.id}>
+                          <TableCell>
+                            <Badge variant={m.movement_type === 'in' ? 'default' : 'destructive'}>
+                              {m.movement_type === 'in' ? 'Nhập' : 'Xuất'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className={`text-right font-semibold ${m.movement_type === 'in' ? 'text-emerald-600' : 'text-destructive'}`}>
+                            {m.movement_type === 'in' ? '+' : '-'}{formatNumber(Math.abs(m.quantity))} {m.unit}
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">{m.reference || '—'}</TableCell>
+                          <TableCell className="text-sm">{m.user_name || '—'}</TableCell>
+                          <TableCell className="text-xs text-muted-foreground">{formatDateTime(m.created_at)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
               )}
             </CardContent>
           </Card>

@@ -78,9 +78,10 @@ export function ChemicalForm({ chemical, open, onOpenChange }: ChemicalFormProps
           .select('id', { count: 'exact', head: true });
         const nextNum = (count.count || 0) + 1;
         const code = `CHM-${String(nextNum).padStart(3, '0')}`;
+        const qr_token = Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6);
         const { error } = await supabase
           .from('chemicals')
-          .insert({ ...payload, code });
+          .insert({ ...payload, code, qr_token });
         if (error) throw error;
         toast({ title: 'Đã thêm hóa chất mới' });
       }

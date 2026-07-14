@@ -17,6 +17,7 @@ import {
   FlaskRound,
   TrendingDown,
   Droplets,
+  ScanLine,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth-context';
@@ -36,6 +37,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/preparations', label: 'Hồ sơ pha chế', icon: FlaskRound },
   { href: '/prepared-solutions', label: 'Hóa chất đã pha', icon: Droplets },
   { href: '/usage-slips', label: 'Phiếu sử dụng', icon: ClipboardList },
+  { href: '/scan', label: 'Quét QR', icon: ScanLine },
   { href: '/stock-in', label: 'Nhập kho', icon: PackagePlus },
   { href: '/stock-out', label: 'Xuất kho', icon: PackageMinus },
   { href: '/usage-stats', label: 'Thống kê sử dụng', icon: TrendingDown },
