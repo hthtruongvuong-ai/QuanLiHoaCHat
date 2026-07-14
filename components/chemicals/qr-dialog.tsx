@@ -2,7 +2,7 @@
 
 import { useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { Download, Printer, FileImage, Loader2, ExternalLink } from 'lucide-react';
+import { Printer, FileImage, Loader2, RefreshCw } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -12,22 +12,24 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import type { Chemical } from '@/lib/types';
-import { buildQrUrl } from '@/lib/qr';
+import { getQrValue } from '@/lib/qr';
+import { getSupabase } from '@/lib/supabase/singleton';
 
 interface QRDialogProps {
   chemical: Chemical | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onRegenerated?: (updated: Chemical) => void;
 }
 
-export function QRDialog({ chemical, open, onOpenChange }: QRDialogProps) {
+export function QRDialog({ chemical, open, onOpenChange, onRegenerated }: QRDialogProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const [downloading, setDownloading] = useState(false);
+  const [regenerating, setRegenerating] = useState(false);
 
   if (!chemical) return null;
 
-  const token = chemical.qr_token || chemical.id;
-  const qrValue = buildQrUrl(token);
+  const qrValue = getQrValue(chemical);
 
   const svgToPngDataUrl = (size: number): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -66,7 +68,6 @@ export function QRDialog({ chemical, open, onOpenChange }: QRDialogProps) {
       a.download = `QR-${chemical.code}.png`;
       a.click();
     } catch {
-      // fallback: download SVG
       const svg = svgRef.current;
       if (svg) {
         const svgData = new XMLSerializer().serializeToString(svg);
@@ -104,7 +105,7 @@ export function QRDialog({ chemical, open, onOpenChange }: QRDialogProps) {
             <h2>${chemical.name}</h2>
             <p>${chemical.code} | CAS: ${chemical.cas_number || '—'}</p>
             <img src="${pngDataUrl}" />
-            <div class="footer">Quét mã QR để xem thông tin hóa chất</div>
+            <div class="footer">Quét mã QR trong ứng dụng để xem thông tin hóa chất</div>
           </div>
         </body></html>
       `);
@@ -122,6 +123,21 @@ export function QRDialog({ chemical, open, onOpenChange }: QRDialogProps) {
     }
     printWindow.document.close();
     setTimeout(() => printWindow.print(), 500);
+  };
+
+  const handleRegenerate = async () => {
+    setRegenerating(true);
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('chemicals')
+      .update({ qr_token: Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6) })
+      .eq('id', chemical.id)
+      .select()
+      .single();
+    if (!error && data && onRegenerated) {
+      onRegenerated(data as Chemical);
+    }
+    setRegenerating(false);
   };
 
   return (
@@ -151,23 +167,16 @@ export function QRDialog({ chemical, open, onOpenChange }: QRDialogProps) {
             <p className="text-xs text-muted-foreground">
               CAS: {chemical.cas_number || '—'}
             </p>
-            <p className="mt-2 break-all rounded bg-muted px-2 py-1 text-[10px] font-mono text-muted-foreground">
-              {qrValue}
+            <p className="mt-2 rounded bg-muted px-2 py-1 text-[10px] font-mono text-muted-foreground">
+              Nội dung QR: {qrValue}
             </p>
-            {process.env.NEXT_PUBLIC_APP_URL && (
-              <a
-                href={qrValue}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-1 inline-flex items-center gap-1 text-xs text-primary hover:underline"
-              >
-                <ExternalLink className="h-3 w-3" />
-                Mở liên kết QR
-              </a>
-            )}
           </div>
         </div>
         <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={handleRegenerate} disabled={regenerating}>
+            {regenerating ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+            Tạo lại
+          </Button>
           <Button variant="outline" onClick={handlePrint}>
             <Printer className="mr-2 h-4 w-4" />
             In

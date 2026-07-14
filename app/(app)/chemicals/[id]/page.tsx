@@ -618,7 +618,7 @@ export default function ChemicalDetailPage({ params }: { params: { id: string } 
         </TabsContent>
       </Tabs>
 
-      <QRDialog chemical={chemical} open={qrOpen} onOpenChange={setQrOpen} />
+      <QRDialog chemical={chemical} open={qrOpen} onOpenChange={setQrOpen} onRegenerated={(updated) => setChemical(updated)} />
     </div>
   );
 }

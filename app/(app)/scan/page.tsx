@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { ScanLine, Camera, CameraOff, Keyboard, Loader2, AlertCircle, Search } from 'lucide-react';
+import { ScanLine, Camera, CameraOff, Keyboard, Loader2, AlertCircle, Search, SearchX } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,7 +15,8 @@ export default function ScanPage() {
   const streamRef = useRef<MediaStream | null>(null);
   const [scanning, setScanning] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [manualToken, setManualToken] = useState('');
+  const [notFound, setNotFound] = useState<string | null>(null);
+  const [manualCode, setManualCode] = useState('');
   const [lookingUp, setLookingUp] = useState(false);
   const [mode, setMode] = useState<'camera' | 'manual'>('camera');
   const [cameraSupported, setCameraSupported] = useState(true);
@@ -28,61 +29,55 @@ export default function ScanPage() {
     setScanning(false);
   }, []);
 
-  const resolveAndNavigate = useCallback(async (raw: string) => {
+  const resolveCode = useCallback(async (raw: string) => {
     setLookingUp(true);
     setError(null);
+    setNotFound(null);
 
-    let token = raw.trim();
-    try {
-      const url = new URL(raw);
-      const parts = url.pathname.split('/').filter(Boolean);
-      const qrIdx = parts.indexOf('qr');
-      if (qrIdx !== -1 && parts[qrIdx + 1]) {
-        token = parts[qrIdx + 1];
-      } else if (parts.length > 0) {
-        token = parts[parts.length - 1];
-      }
-    } catch {
-      // not a URL, use raw token
+    const code = raw.trim();
+    if (!code) {
+      setLookingUp(false);
+      return;
     }
 
     const supabase = getSupabase();
 
-    // Try qr_token first
+    // Try by chemical code first (e.g. CHM-001)
     let { data } = await supabase
       .from('chemicals')
       .select('id')
-      .eq('qr_token', token)
+      .eq('code', code)
       .maybeSingle();
 
     // Try by UUID id
-    if (!data && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(token)) {
+    if (!data && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(code)) {
       ({ data } = await supabase
         .from('chemicals')
         .select('id')
-        .eq('id', token)
+        .eq('id', code)
         .maybeSingle());
     }
 
-    // Try by chemical code (e.g. CHM-001)
+    // Try by qr_token
     if (!data) {
       ({ data } = await supabase
         .from('chemicals')
         .select('id')
-        .eq('code', token)
+        .eq('qr_token', code)
         .maybeSingle());
     }
 
     if (data) {
       router.push(`/chemicals/${data.id}`);
     } else {
-      setError(`Không tìm thấy hóa chất với mã: ${token}`);
+      setNotFound(code);
       setLookingUp(false);
     }
   }, [router]);
 
   const startCamera = useCallback(async () => {
     setError(null);
+    setNotFound(null);
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'environment' },
@@ -94,7 +89,7 @@ export default function ScanPage() {
       }
       setScanning(true);
       startDetection();
-    } catch (err: any) {
+    } catch {
       setCameraSupported(false);
       setError('Không thể truy cập camera. Vui lòng sử dụng nhập thủ công.');
       setMode('manual');
@@ -107,8 +102,6 @@ export default function ScanPage() {
 
     const BarcodeDetector = (window as any).BarcodeDetector;
     if (!BarcodeDetector) {
-      // Fallback: scan via canvas frame capture + QR decode library not available
-      // Use a simple interval to check for QR via BarcodeDetector polyfill
       setError('Trình duyệt không hỗ trợ quét QR tự động. Vui lòng nhập mã thủ công.');
       setMode('manual');
       stopCamera();
@@ -125,15 +118,17 @@ export default function ScanPage() {
       return;
     }
 
+    let active = true;
     const detect = async () => {
-      if (!scanning || !videoRef.current) return;
+      if (!active || !videoRef.current) return;
       try {
         const codes = await detector.detect(videoRef.current);
         if (codes && codes.length > 0) {
           const raw = codes[0].rawValue as string;
           if (raw) {
+            active = false;
             stopCamera();
-            resolveAndNavigate(raw);
+            resolveCode(raw);
             return;
           }
         }
@@ -143,7 +138,9 @@ export default function ScanPage() {
       requestAnimationFrame(detect);
     };
     detect();
-  }, [scanning, stopCamera, resolveAndNavigate]);
+
+    return () => { active = false; };
+  }, [stopCamera, resolveCode]);
 
   useEffect(() => {
     return () => stopCamera();
@@ -159,8 +156,8 @@ export default function ScanPage() {
 
   const handleManualSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (manualToken.trim()) {
-      resolveAndNavigate(manualToken);
+    if (manualCode.trim()) {
+      resolveCode(manualCode);
     }
   };
 
@@ -197,6 +194,25 @@ export default function ScanPage() {
           <CardContent className="flex items-center gap-3 p-4">
             <AlertCircle className="h-5 w-5 shrink-0 text-destructive" />
             <p className="text-sm text-destructive">{error}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {notFound && (
+        <Card className="border-destructive/50 bg-destructive/5">
+          <CardContent className="flex flex-col items-center gap-3 p-8 text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-destructive/10">
+              <SearchX className="h-7 w-7 text-destructive" />
+            </div>
+            <div>
+              <p className="text-lg font-semibold text-destructive">Không tìm thấy hóa chất</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Mã hóa chất <span className="font-mono font-medium">{notFound}</span> không tồn tại trong hệ thống.
+              </p>
+            </div>
+            <Button variant="outline" size="sm" onClick={() => { setNotFound(null); setMode('manual'); }}>
+              Thử lại với mã khác
+            </Button>
           </CardContent>
         </Card>
       )}
@@ -266,16 +282,17 @@ export default function ScanPage() {
             <form onSubmit={handleManualSubmit} className="space-y-4">
               <div className="space-y-1.5">
                 <Input
-                  placeholder="Nhập mã QR hoặc mã hóa chất (VD: CHM-001)"
-                  value={manualToken}
-                  onChange={(e) => setManualToken(e.target.value)}
+                  placeholder="Nhập mã hóa chất (VD: CHM-001)"
+                  value={manualCode}
+                  onChange={(e) => setManualCode(e.target.value)}
                   disabled={lookingUp}
+                  autoFocus
                 />
                 <p className="text-xs text-muted-foreground">
-                  Hỗ trợ nhập mã QR token, URL đầy đủ, hoặc mã hóa chất
+                  Nhập mã hóa chất in trên nhãn chai
                 </p>
               </div>
-              <Button type="submit" className="w-full" disabled={lookingUp || !manualToken.trim()}>
+              <Button type="submit" className="w-full" disabled={lookingUp || !manualCode.trim()}>
                 {lookingUp ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Search className="mr-2 h-4 w-4" />}
                 Tra cứu
               </Button>
@@ -287,8 +304,8 @@ export default function ScanPage() {
       <Card className="bg-muted/30">
         <CardContent className="p-4">
           <p className="text-sm text-muted-foreground">
-            <Badge variant="outline" className="mr-2">Mẹo</Badge>
-            Mã QR trên nhãn hóa chất chứa đường dẫn trực tiếp đến hồ sơ. Khi quét bằng ứng dụng camera điện thoại, trình duyệt sẽ tự động mở trang chi tiết hóa chất.
+            <Badge variant="outline" className="mr-2">Lưu ý</Badge>
+            Mã QR chỉ sử dụng được trong hệ thống. Bạn cần đăng nhập trước khi quét. Mã QR chứa mã hóa chất (VD: CHM-001), không chứa URL.
           </p>
         </CardContent>
       </Card>

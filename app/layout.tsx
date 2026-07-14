@@ -9,6 +9,21 @@ const inter = Inter({ subsets: ['latin'] });
 export const metadata: Metadata = {
   title: 'Quản Lý Hóa Chất | Chemical Inventory',
   description: 'Hệ thống quản lý kho hóa chất phòng thí nghiệm',
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'QL Hóa Chất',
+  },
+  themeColor: '#0f172a',
+};
+
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  themeColor: '#0f172a',
 };
 
 export default function RootLayout({

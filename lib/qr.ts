@@ -1,30 +1,24 @@
 /**
- * Resolves the correct base URL for QR codes and external links.
+ * QR Code helper for internal chemical management system.
  *
- * Priority:
- * 1. NEXT_PUBLIC_APP_URL env var (production URL like https://myapp.bolt.host)
- * 2. window.location.origin (fallback for same-origin scanning)
- *
- * This ensures QR codes always point to the production deployment,
- * not the temporary WebContainer preview URL.
+ * QR codes encode ONLY the chemical code (e.g. "CHM-001") — no URL,
+ * no domain, no external link. The QR is scanned inside the app
+ * after the user has logged in, and the app resolves the code
+ * against the database to open the chemical detail page.
  */
-export function getAppUrl(): string {
-  const envUrl = process.env.NEXT_PUBLIC_APP_URL;
-  if (envUrl && envUrl.trim().length > 0) {
-    return envUrl.replace(/\/$/, '');
-  }
-  if (typeof window !== 'undefined') {
-    return window.location.origin;
-  }
-  return '';
+
+/**
+ * Returns the value to encode inside a QR code for a chemical.
+ * This is just the chemical's code string (e.g. "CHM-001").
+ */
+export function getQrValue(chemical: { code: string; id: string; qr_token?: string | null }): string {
+  return chemical.code;
 }
 
 /**
- * Builds a QR code URL that points to the /qr/[token] route.
- * Uses the production app URL so the QR works when scanned
- * from any device, even after the WebContainer preview is gone.
+ * Generates a new random qr_token for a chemical.
+ * Used when regenerating a QR code.
  */
-export function buildQrUrl(token: string): string {
-  const base = getAppUrl();
-  return `${base}/qr/${token}`;
+export function generateQrToken(): string {
+  return Math.random().toString(36).slice(2, 10) + Math.random().toString(36).slice(2, 6);
 }
