@@ -18,6 +18,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { QRDialog } from '@/components/chemicals/qr-dialog';
 import { ExpiryBadge } from '@/components/chemicals/expiry-badge';
+import { SafetyTab } from '@/components/chemicals/safety-tab';
 import { getSupabase } from '@/lib/supabase/singleton';
 import { useAuth } from '@/lib/auth-context';
 import { canManageStock } from '@/lib/roles';
@@ -261,192 +262,192 @@ export default function ChemicalDetailPage({ params }: { params: { id: string } 
         </Card>
       </div>
 
-      {chemical.description && (
-        <Card>
-          <CardHeader><CardTitle className="text-base">Mô tả</CardTitle></CardHeader>
-          <CardContent><p className="text-sm text-muted-foreground">{chemical.description}</p></CardContent>
-        </Card>
-      )}
+      <Tabs defaultValue="info" className="w-full">
+        <TabsList className="mb-4">
+          <TabsTrigger value="info">Thông tin & Lô</TabsTrigger>
+          <TabsTrigger value="safety">An toàn & Hồ sơ</TabsTrigger>
+          <TabsTrigger value="usage">Thống kê sử dụng</TabsTrigger>
+        </TabsList>
 
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-lg">Thông tin lô ({lots.length})</CardTitle>
-          {canEdit && (
-            <Button size="sm" variant="outline" onClick={() => router.push('/stock-in')}>
-              <Plus className="mr-2 h-4 w-4" />
-              Nhập lô mới
-            </Button>
+        <TabsContent value="info" className="space-y-6">
+          {chemical.description && (
+            <Card>
+              <CardHeader><CardTitle className="text-base">Mô tả</CardTitle></CardHeader>
+              <CardContent><p className="text-sm text-muted-foreground">{chemical.description}</p></CardContent>
+            </Card>
           )}
-        </CardHeader>
-        <CardContent>
-          {lots.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 py-12 text-center">
-              <Package className="h-12 w-12 text-muted-foreground/50" />
-              <p className="text-sm text-muted-foreground">Chưa có lô nào</p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto rounded-lg border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Số lô</TableHead>
-                    <TableHead className="text-right">Tồn kho</TableHead>
-                    <TableHead>Ngày nhập</TableHead>
-                    <TableHead>Hạn sử dụng</TableHead>
-                    <TableHead>Vị trí</TableHead>
-                    <TableHead>Nhà cung cấp</TableHead>
-                    <TableHead>Mở nắp</TableHead>
-                    <TableHead>Trạng thái</TableHead>
-                    <TableHead>COA</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {lots.map((lot) => (
-                    <TableRow key={lot.id}>
-                      <TableCell className="font-mono text-xs font-medium">{lot.lot_number || '—'}</TableCell>
-                      <TableCell className="text-right">
-                        <span className="font-semibold">{formatNumber(lot.quantity)}</span>
-                        <span className="text-muted-foreground"> / {formatNumber(lot.initial_quantity)} {lot.unit}</span>
-                      </TableCell>
-                      <TableCell className="text-muted-foreground text-sm">{formatDate(lot.received_date)}</TableCell>
-                      <TableCell>
-                        <div className="flex flex-col gap-0.5">
-                          <span className="text-sm">{formatDate(lot.expiry_date)}</span>
-                          <ExpiryBadge expiryDate={lot.expiry_date} />
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-sm">{lot.storage_location_id ? locations[lot.storage_location_id] || '—' : '—'}</TableCell>
-                      <TableCell className="text-muted-foreground text-sm">{lot.supplier || '—'}</TableCell>
-                      <TableCell>
-                        {canEdit ? (
-                          <button
-                            onClick={() => toggleOpened(lot)}
-                            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
-                              lot.opened
-                                ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
-                                : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
-                            }`}
-                          >
-                            {lot.opened ? <Unlock className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
-                            {lot.opened ? 'Đã mở' : 'Chưa mở'}
-                          </button>
-                        ) : (
-                          <Badge variant="outline" className={lot.opened ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}>
-                            {lot.opened ? 'Đã mở nắp' : 'Chưa mở nắp'}
-                          </Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={lot.status === 'active' ? 'default' : lot.status === 'expired' ? 'destructive' : 'secondary'}>
-                          {lot.status === 'active' ? 'Hoạt động' : lot.status === 'expired' ? 'Hết hạn' : 'Đã hết'}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-1.5">
-                          {lot.coa_url ? (
-                            <>
-                              <a href={lot.coa_url} target="_blank" rel="noopener noreferrer">
-                                <Button variant="ghost" size="sm" className="h-8 gap-1 text-primary">
-                                  <FileText className="h-4 w-4" />
-                                  <span className="hidden lg:inline">Xem COA</span>
-                                </Button>
-                              </a>
-                              {canEdit && (
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle className="text-lg">Thông tin lô ({lots.length})</CardTitle>
+              {canEdit && (
+                <Button size="sm" variant="outline" onClick={() => router.push('/stock-in')}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Nhập lô mới
+                </Button>
+              )}
+            </CardHeader>
+            <CardContent>
+              {lots.length === 0 ? (
+                <div className="flex flex-col items-center gap-3 py-12 text-center">
+                  <Package className="h-12 w-12 text-muted-foreground/50" />
+                  <p className="text-sm text-muted-foreground">Chưa có lô nào</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto rounded-lg border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Số lô</TableHead>
+                        <TableHead className="text-right">Tồn kho</TableHead>
+                        <TableHead>Ngày nhập</TableHead>
+                        <TableHead>Hạn sử dụng</TableHead>
+                        <TableHead>Vị trí</TableHead>
+                        <TableHead>Nhà cung cấp</TableHead>
+                        <TableHead>Mở nắp</TableHead>
+                        <TableHead>Trạng thái</TableHead>
+                        <TableHead>COA</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {lots.map((lot) => (
+                        <TableRow key={lot.id}>
+                          <TableCell className="font-mono text-xs font-medium">{lot.lot_number || '—'}</TableCell>
+                          <TableCell className="text-right">
+                            <span className="font-semibold">{formatNumber(lot.quantity)}</span>
+                            <span className="text-muted-foreground"> / {formatNumber(lot.initial_quantity)} {lot.unit}</span>
+                          </TableCell>
+                          <TableCell className="text-muted-foreground text-sm">{formatDate(lot.received_date)}</TableCell>
+                          <TableCell>
+                            <div className="flex flex-col gap-0.5">
+                              <span className="text-sm">{formatDate(lot.expiry_date)}</span>
+                              <ExpiryBadge expiryDate={lot.expiry_date} />
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-sm">{lot.storage_location_id ? locations[lot.storage_location_id] || '—' : '—'}</TableCell>
+                          <TableCell className="text-muted-foreground text-sm">{lot.supplier || '—'}</TableCell>
+                          <TableCell>
+                            {canEdit ? (
+                              <button
+                                onClick={() => toggleOpened(lot)}
+                                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+                                  lot.opened
+                                    ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
+                                    : 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                                }`}
+                              >
+                                {lot.opened ? <Unlock className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
+                                {lot.opened ? 'Đã mở' : 'Chưa mở'}
+                              </button>
+                            ) : (
+                              <Badge variant="outline" className={lot.opened ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-emerald-200 bg-emerald-50 text-emerald-700'}>
+                                {lot.opened ? 'Đã mở nắp' : 'Chưa mở nắp'}
+                              </Badge>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={lot.status === 'active' ? 'default' : lot.status === 'expired' ? 'destructive' : 'secondary'}>
+                              {lot.status === 'active' ? 'Hoạt động' : lot.status === 'expired' ? 'Hết hạn' : 'Đã hết'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex items-center gap-1.5">
+                              {lot.coa_url ? (
                                 <>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className="h-8 gap-1"
-                                    disabled={uploadingLotId === lot.id}
-                                    onClick={() => fileInputRefs.current[lot.id]?.click()}
-                                  >
-                                    {uploadingLotId === lot.id ? (
-                                      <Loader2 className="h-4 w-4 animate-spin" />
-                                    ) : (
-                                      <Upload className="h-4 w-4" />
-                                    )}
-                                  </Button>
+                                  <a href={lot.coa_url} target="_blank" rel="noopener noreferrer">
+                                    <Button variant="ghost" size="sm" className="h-8 gap-1 text-primary">
+                                      <FileText className="h-4 w-4" />
+                                      <span className="hidden lg:inline">Xem COA</span>
+                                    </Button>
+                                  </a>
+                                  {canEdit && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-8 gap-1"
+                                      disabled={uploadingLotId === lot.id}
+                                      onClick={() => fileInputRefs.current[lot.id]?.click()}
+                                    >
+                                      {uploadingLotId === lot.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                                    </Button>
+                                  )}
                                 </>
-                              )}
-                            </>
-                          ) : canEdit ? (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-8 gap-1"
-                              disabled={uploadingLotId === lot.id}
-                              onClick={() => fileInputRefs.current[lot.id]?.click()}
-                            >
-                              {uploadingLotId === lot.id ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : canEdit ? (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-8 gap-1"
+                                  disabled={uploadingLotId === lot.id}
+                                  onClick={() => fileInputRefs.current[lot.id]?.click()}
+                                >
+                                  {uploadingLotId === lot.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                                  <span className="hidden lg:inline">Tải lên</span>
+                                </Button>
                               ) : (
-                                <Upload className="h-4 w-4" />
+                                <span className="text-xs text-muted-foreground">Chưa có</span>
                               )}
-                              <span className="hidden lg:inline">Tải lên</span>
-                            </Button>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">Chưa có</span>
-                          )}
-                          <input
-                            ref={(el) => { fileInputRefs.current[lot.id] = el; }}
-                            type="file"
-                            accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
-                            className="hidden"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) handleUploadCOA(lot, file);
-                              e.target.value = '';
-                            }}
-                          />
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                              <input
+                                ref={(el) => { fileInputRefs.current[lot.id] = el; }}
+                                type="file"
+                                accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+                                className="hidden"
+                                onChange={(e) => {
+                                  const file = e.target.files?.[0];
+                                  if (file) handleUploadCOA(lot, file);
+                                  e.target.value = '';
+                                }}
+                              />
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Thống kê sử dụng {chemical.name}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {usageRecords.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 py-12 text-center">
-              <p className="text-sm text-muted-foreground">Chưa có dữ liệu sử dụng cho hóa chất này</p>
-            </div>
-          ) : (
-            <Tabs defaultValue="daily">
-              <TabsList className="mb-4">
-                <TabsTrigger value="daily">Theo ngày (7 ngày)</TabsTrigger>
-                <TabsTrigger value="weekly">Theo tuần (4 tuần)</TabsTrigger>
-                <TabsTrigger value="monthly">Theo tháng (6 tháng)</TabsTrigger>
-              </TabsList>
-              <TabsContent value="daily">
-                <div className="mb-2 text-sm text-muted-foreground">
-                  Lượng {chemical.name} sử dụng theo từng ngày (7 ngày gần nhất)
+        <TabsContent value="safety">
+          <SafetyTab chemicalId={chemical.id} canEdit={canEdit} />
+        </TabsContent>
+
+        <TabsContent value="usage">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Thống kê sử dụng {chemical.name}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {usageRecords.length === 0 ? (
+                <div className="flex flex-col items-center gap-3 py-12 text-center">
+                  <p className="text-sm text-muted-foreground">Chưa có dữ liệu sử dụng cho hóa chất này</p>
                 </div>
-                <UsageChart data={chartData.daily} unit={chemical.unit} />
-              </TabsContent>
-              <TabsContent value="weekly">
-                <div className="mb-2 text-sm text-muted-foreground">
-                  Lượng {chemical.name} sử dụng theo từng tuần (4 tuần gần nhất)
-                </div>
-                <UsageChart data={chartData.weekly} unit={chemical.unit} />
-              </TabsContent>
-              <TabsContent value="monthly">
-                <div className="mb-2 text-sm text-muted-foreground">
-                  Lượng {chemical.name} sử dụng theo từng tháng (6 tháng gần nhất)
-                </div>
-                <UsageChart data={chartData.monthly} unit={chemical.unit} />
-              </TabsContent>
-            </Tabs>
-          )}
-        </CardContent>
-      </Card>
+              ) : (
+                <Tabs defaultValue="daily">
+                  <TabsList className="mb-4">
+                    <TabsTrigger value="daily">Theo ngày (7 ngày)</TabsTrigger>
+                    <TabsTrigger value="weekly">Theo tuần (4 tuần)</TabsTrigger>
+                    <TabsTrigger value="monthly">Theo tháng (6 tháng)</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="daily">
+                    <div className="mb-2 text-sm text-muted-foreground">Lượng {chemical.name} sử dụng theo từng ngày (7 ngày gần nhất)</div>
+                    <UsageChart data={chartData.daily} unit={chemical.unit} />
+                  </TabsContent>
+                  <TabsContent value="weekly">
+                    <div className="mb-2 text-sm text-muted-foreground">Lượng {chemical.name} sử dụng theo từng tuần (4 tuần gần nhất)</div>
+                    <UsageChart data={chartData.weekly} unit={chemical.unit} />
+                  </TabsContent>
+                  <TabsContent value="monthly">
+                    <div className="mb-2 text-sm text-muted-foreground">Lượng {chemical.name} sử dụng theo từng tháng (6 tháng gần nhất)</div>
+                    <UsageChart data={chartData.monthly} unit={chemical.unit} />
+                  </TabsContent>
+                </Tabs>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       <QRDialog chemical={chemical} open={qrOpen} onOpenChange={setQrOpen} />
     </div>

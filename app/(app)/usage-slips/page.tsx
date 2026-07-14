@@ -1,7 +1,7 @@
 'use client';
 
 import { Fragment, useEffect, useState } from 'react';
-import { ClipboardList, Plus, Loader2, Check, Trash2, X, Pencil, Eye, ChevronDown, ChevronRight, FlaskRound, Link2 } from 'lucide-react';
+import { ClipboardList, Plus, Loader2, Check, Trash2, X, Pencil, Eye, ChevronDown, ChevronRight, FlaskRound, Link2, FlaskConical } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -77,7 +77,6 @@ export default function UsageSlipsPage() {
 
   const [purpose, setPurpose] = useState('');
   const [items, setItems] = useState<FormItem[]>([]);
-  const [isPrep, setIsPrep] = useState(false);
   const [editingSlip, setEditingSlip] = useState<SlipWithItems | null>(null);
   const [editPurpose, setEditPurpose] = useState('');
   const [editItems, setEditItems] = useState<FormItem[]>([]);
@@ -114,7 +113,6 @@ export default function UsageSlipsPage() {
 
   const openNewSlip = () => {
     setPurpose('');
-    setIsPrep(false);
     setItems([{ lot_id: '', chemical_name: '', quantity: '', unit: '', prepared_solution_id: '', is_prepared: false }]);
     setDialogOpen(true);
   };
@@ -144,6 +142,7 @@ export default function UsageSlipsPage() {
       }
     }
     if (field === 'is_prepared') {
+      updated[idx].is_prepared = value === 'true';
       updated[idx].lot_id = '';
       updated[idx].prepared_solution_id = '';
       updated[idx].chemical_name = '';
@@ -281,46 +280,43 @@ export default function UsageSlipsPage() {
         });
       }
 
-      // If this is a preparation slip, auto-create a draft preparation linked to this slip
-      if (isPrep) {
-        const prepCount = await supabase.from('preparations').select('id', { count: 'exact', head: true });
-        const prepNumber = `PREP-${year}-${String((prepCount.count || 0) + 1).padStart(3, '0')}`;
+      // Always auto-create a draft preparation linked to this slip
+      const prepCount = await supabase.from('preparations').select('id', { count: 'exact', head: true });
+      const prepNumber = `PREP-${year}-${String((prepCount.count || 0) + 1).padStart(3, '0')}`;
 
-        const { data: prep, error: prepError } = await supabase.from('preparations').insert({
-          prep_number: prepNumber,
-          product_name: '',
-          product_code: '',
-          target_concentration: '',
-          target_volume: 0,
-          unit: 'ml',
-          procedure: '',
-          result: 'pending',
-          notes: '',
-          user_id: profile?.id,
-          user_name: profile?.full_name || '',
-          status: 'draft',
-          usage_slip_id: slip.id,
-        }).select().single();
+      const { data: prep, error: prepError } = await supabase.from('preparations').insert({
+        prep_number: prepNumber,
+        product_name: '',
+        product_code: '',
+        target_concentration: '',
+        target_volume: 0,
+        unit: 'ml',
+        procedure: '',
+        result: 'pending',
+        notes: '',
+        user_id: profile?.id,
+        user_name: profile?.full_name || '',
+        status: 'draft',
+        usage_slip_id: slip.id,
+      }).select().single();
 
-        if (!prepError && prep) {
-          // Copy slip items to preparation items
-          for (const item of validItems) {
-            const lot = lots.find((l) => l.id === item.lot_id)!;
-            await supabase.from('preparation_items').insert({
-              preparation_id: prep.id,
-              lot_id: item.lot_id,
-              chemical_id: lot.chemical_id,
-              chemical_name: item.chemical_name,
-              quantity_used: parseFloat(item.quantity),
-              unit: item.unit,
-            });
-          }
-          toast({ title: 'Tạo phiếu thành công', description: `${slipNumber} — Đã tạo hồ sơ pha chế ${prepNumber}, vui lòng hoàn thiện tại trang Hồ sơ pha chế` });
-        } else {
-          toast({ title: 'Tạo phiếu thành công', description: `${slipNumber} — Lỗi tạo hồ sơ pha chế, vui lòng tạo thủ công` });
+      if (!prepError && prep) {
+        for (const item of validItems) {
+          if (item.is_prepared) continue;
+          const lot = lots.find((l) => l.id === item.lot_id);
+          if (!lot) continue;
+          await supabase.from('preparation_items').insert({
+            preparation_id: prep.id,
+            lot_id: item.lot_id,
+            chemical_id: lot.chemical_id,
+            chemical_name: item.chemical_name,
+            quantity_used: parseFloat(item.quantity),
+            unit: item.unit,
+          });
         }
+        toast({ title: 'Tạo phiếu thành công', description: `${slipNumber} — Đã tự động tạo hồ sơ pha chế ${prepNumber}` });
       } else {
-        toast({ title: 'Tạo phiếu thành công', description: slipNumber });
+        toast({ title: 'Tạo phiếu thành công', description: `${slipNumber} — Lỗi tạo hồ sơ pha chế, vui lòng tạo thủ công` });
       }
       setDialogOpen(false);
       await refreshSlips();
@@ -622,18 +618,11 @@ export default function UsageSlipsPage() {
               />
             </div>
 
-            <div className="flex items-center gap-2 rounded-lg border bg-muted/50 p-3">
-              <input
-                type="checkbox"
-                id="isPrep"
-                checked={isPrep}
-                onChange={(e) => setIsPrep(e.target.checked)}
-                className="h-4 w-4 rounded border-primary"
-              />
-              <label htmlFor="isPrep" className="flex items-center gap-2 text-sm font-medium cursor-pointer">
-                <FlaskRound className="h-4 w-4 text-primary" />
-                Tạo hồ sơ pha chế kèm theo phiếu này
-              </label>
+            <div className="flex items-center gap-2 rounded-lg border bg-primary/5 p-3">
+              <FlaskConical className="h-4 w-4 text-primary" />
+              <span className="text-sm font-medium text-primary">
+                Hệ thống sẽ tự động tạo hồ sơ pha chế khi xác nhận phiếu
+              </span>
             </div>
 
             <div className="space-y-2">

@@ -21,12 +21,7 @@ interface QRDialogProps {
 export function QRDialog({ chemical, open, onOpenChange }: QRDialogProps) {
   if (!chemical) return null;
 
-  const qrValue = JSON.stringify({
-    code: chemical.code,
-    name: chemical.name,
-    cas: chemical.cas_number,
-    formula: chemical.formula,
-  });
+  const qrValue = `${typeof window !== 'undefined' ? window.location.origin : ''}/chemicals/${chemical.id}`;
 
   const handleDownload = () => {
     const svg = document.getElementById('qr-svg');

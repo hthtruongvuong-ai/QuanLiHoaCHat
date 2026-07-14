@@ -171,6 +171,31 @@ export interface PreparedSolution {
   updated_at: string;
 }
 
+export interface ChemicalSafetyDoc {
+  id: string;
+  chemical_id: string;
+  doc_type: string;
+  doc_name: string;
+  doc_url: string;
+  doc_expiry: string | null;
+  uploaded_by: string;
+  version: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ChemicalSafetyInfo {
+  id: string;
+  chemical_id: string;
+  ghs_classification: string;
+  ghs_symbols: string;
+  storage_conditions: string;
+  ppe: string;
+  spill_handling: string;
+  first_aid: string;
+  updated_at: string;
+}
+
 export interface PreparedSolutionUsage {
   id: string;
   prepared_solution_id: string;
