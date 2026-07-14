@@ -47,11 +47,31 @@ export default function ScanPage() {
     }
 
     const supabase = getSupabase();
-    const { data } = await supabase
+
+    // Try qr_token first
+    let { data } = await supabase
       .from('chemicals')
       .select('id')
       .eq('qr_token', token)
       .maybeSingle();
+
+    // Try by UUID id
+    if (!data && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(token)) {
+      ({ data } = await supabase
+        .from('chemicals')
+        .select('id')
+        .eq('id', token)
+        .maybeSingle());
+    }
+
+    // Try by chemical code (e.g. CHM-001)
+    if (!data) {
+      ({ data } = await supabase
+        .from('chemicals')
+        .select('id')
+        .eq('code', token)
+        .maybeSingle());
+    }
 
     if (data) {
       router.push(`/chemicals/${data.id}`);

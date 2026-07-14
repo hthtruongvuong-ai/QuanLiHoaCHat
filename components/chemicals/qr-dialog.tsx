@@ -2,7 +2,7 @@
 
 import { useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { Download, Printer, FileImage, Loader2 } from 'lucide-react';
+import { Download, Printer, FileImage, Loader2, ExternalLink } from 'lucide-react';
 import {
   Dialog,
   DialogContent,
@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import type { Chemical } from '@/lib/types';
+import { buildQrUrl } from '@/lib/qr';
 
 interface QRDialogProps {
   chemical: Chemical | null;
@@ -26,8 +27,7 @@ export function QRDialog({ chemical, open, onOpenChange }: QRDialogProps) {
   if (!chemical) return null;
 
   const token = chemical.qr_token || chemical.id;
-  const origin = typeof window !== 'undefined' ? window.location.origin : '';
-  const qrValue = `${origin}/qr/${token}`;
+  const qrValue = buildQrUrl(token);
 
   const svgToPngDataUrl = (size: number): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -154,6 +154,17 @@ export function QRDialog({ chemical, open, onOpenChange }: QRDialogProps) {
             <p className="mt-2 break-all rounded bg-muted px-2 py-1 text-[10px] font-mono text-muted-foreground">
               {qrValue}
             </p>
+            {process.env.NEXT_PUBLIC_APP_URL && (
+              <a
+                href={qrValue}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mt-1 inline-flex items-center gap-1 text-xs text-primary hover:underline"
+              >
+                <ExternalLink className="h-3 w-3" />
+                Mở liên kết QR
+              </a>
+            )}
           </div>
         </div>
         <DialogFooter className="gap-2">
