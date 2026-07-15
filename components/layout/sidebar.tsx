@@ -18,6 +18,7 @@ import {
   TrendingDown,
   Droplets,
   ScanLine,
+  ClipboardCheck,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/auth-context';
@@ -44,6 +45,7 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/storage', label: 'Kho lưu trữ', icon: Warehouse },
   { href: '/reports', label: 'Báo cáo', icon: BarChart3 },
   { href: '/users', label: 'Người dùng', icon: Users, roles: ['admin'] },
+  { href: '/initial-inventory', label: 'Khởi tạo tồn kho', icon: ClipboardCheck, roles: ['admin'] },
   { href: '/settings', label: 'Cài đặt', icon: Settings },
 ];
 

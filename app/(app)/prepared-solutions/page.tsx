@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import Link from 'next/link';
-import { Search, FlaskRound, AlertTriangle, CalendarClock, CheckCircle2, Droplet } from 'lucide-react';
+import { Search, FlaskRound, AlertTriangle, CalendarClock, CheckCircle2, Droplet, Trash2, Loader2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -14,8 +15,21 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/lib/auth-context';
 import { getSupabase } from '@/lib/supabase/singleton';
 import { formatDate, formatNumber } from '@/lib/expiry';
+import { canDeletePreparedSolution } from '@/lib/roles';
 import type { PreparedSolution, PreparedSolutionStatus } from '@/lib/types';
 
 const STATUS_CONFIG: Record<PreparedSolutionStatus, { label: string; className: string }> = {
@@ -40,22 +54,50 @@ function computeStatus(sol: PreparedSolution): PreparedSolutionStatus {
 }
 
 export default function PreparedSolutionsPage() {
+  const { profile } = useAuth();
+  const { toast } = useToast();
+  const canDelete = profile ? canDeletePreparedSolution(profile.role) : false;
+
   const [solutions, setSolutions] = useState<PreparedSolution[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<PreparedSolution | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const refresh = useCallback(async () => {
+    const supabase = getSupabase();
+    const { data } = await supabase
+      .from('prepared_solutions')
+      .select('*')
+      .order('created_at', { ascending: false });
+    setSolutions((data || []) as PreparedSolution[]);
+    setLoading(false);
+  }, []);
 
   useEffect(() => {
-    async function loadData() {
+    refresh();
+  }, [refresh]);
+
+  // Auto-sync DB status to 'depleted' when remaining_volume <= 0
+  useEffect(() => {
+    async function syncDepleted() {
+      const toDeplete = solutions.filter(
+        (s) => s.remaining_volume <= 0 && s.status !== 'depleted'
+      );
+      if (toDeplete.length === 0) return;
       const supabase = getSupabase();
-      const { data } = await supabase
-        .from('prepared_solutions')
-        .select('*')
-        .order('created_at', { ascending: false });
-      setSolutions((data || []) as PreparedSolution[]);
-      setLoading(false);
+      for (const sol of toDeplete) {
+        await supabase
+          .from('prepared_solutions')
+          .update({ status: 'depleted', updated_at: new Date().toISOString() })
+          .eq('id', sol.id);
+      }
+      if (toDeplete.length > 0) {
+        await refresh();
+      }
     }
-    loadData();
-  }, []);
+    syncDepleted();
+  }, [solutions, refresh]);
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
@@ -80,6 +122,25 @@ export default function PreparedSolutionsPage() {
     });
     return { inUse, lowStock, depleted, nearExpiry, expired };
   }, [solutions]);
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    const supabase = getSupabase();
+    try {
+      // Delete related usages first
+      await supabase.from('prepared_solution_usages').delete().eq('prepared_solution_id', deleteTarget.id);
+      const { error } = await supabase.from('prepared_solutions').delete().eq('id', deleteTarget.id);
+      if (error) throw error;
+      toast({ title: 'Đã xóa dung dịch đã pha', description: deleteTarget.batch_code });
+      setDeleteTarget(null);
+      await refresh();
+    } catch (err) {
+      toast({ title: 'Lỗi xóa', description: err instanceof Error ? err.message : 'Đã có lỗi', variant: 'destructive' });
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -198,12 +259,13 @@ export default function PreparedSolutionsPage() {
                   <TableHead>Vai trò</TableHead>
                   <TableHead>Người pha</TableHead>
                   <TableHead>Trạng thái</TableHead>
+                  {canDelete && <TableHead className="w-[60px] text-right">Thao tác</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filtered.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={11} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={canDelete ? 12 : 11} className="h-24 text-center text-muted-foreground">
                       Chưa có dung dịch đã pha nào
                     </TableCell>
                   </TableRow>
@@ -211,6 +273,7 @@ export default function PreparedSolutionsPage() {
                   filtered.map((sol) => {
                     const status = computeStatus(sol);
                     const config = STATUS_CONFIG[status];
+                    const canDeleteThis = canDelete && (status === 'depleted' || status === 'expired');
                     return (
                       <TableRow key={sol.id} className="group">
                         <TableCell>
@@ -236,6 +299,26 @@ export default function PreparedSolutionsPage() {
                             {config.label}
                           </Badge>
                         </TableCell>
+                        {canDelete && (
+                          <TableCell>
+                            <div className="flex items-center justify-end opacity-60 transition-opacity group-hover:opacity-100">
+                              {canDeleteThis ? (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                                  onClick={() => setDeleteTarget(sol)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              ) : (
+                                <span className="text-xs text-muted-foreground" title="Chỉ xóa khi đã dùng hết hoặc hết hạn">
+                                  —
+                                </span>
+                              )}
+                            </div>
+                          </TableCell>
+                        )}
                       </TableRow>
                     );
                   })
@@ -245,6 +328,29 @@ export default function PreparedSolutionsPage() {
           </div>
         </CardContent>
       </Card>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(v) => { if (!v) setDeleteTarget(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Xóa dung dịch đã pha?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Hành động này sẽ xóa dung dịch "{deleteTarget?.batch_code} — {deleteTarget?.solution_name}".
+              Lịch sử sử dụng liên quan cũng sẽ bị xóa. Không thể hoàn tác.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Hủy</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Xóa
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

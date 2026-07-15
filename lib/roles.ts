@@ -43,3 +43,19 @@ export function canViewReports(role: UserRole): boolean {
 export function canResetData(role: UserRole): boolean {
   return role === 'admin';
 }
+
+export function canDeleteChemical(role: UserRole): boolean {
+  return role === 'admin';
+}
+
+export function canDeletePreparedSolution(role: UserRole): boolean {
+  return role === 'admin';
+}
+
+export function canInitInventory(role: UserRole): boolean {
+  return role === 'admin';
+}
+
+export function canAdjustStock(role: UserRole): boolean {
+  return role === 'admin';
+}

@@ -280,43 +280,48 @@ export default function UsageSlipsPage() {
         });
       }
 
-      // Always auto-create a draft preparation linked to this slip
-      const prepCount = await supabase.from('preparations').select('id', { count: 'exact', head: true });
-      const prepNumber = `PREP-${year}-${String((prepCount.count || 0) + 1).padStart(3, '0')}`;
+      // Only auto-create a draft preparation when the slip uses original chemicals (not prepared solutions)
+      const hasOriginalItems = validItems.some((i) => !i.is_prepared && i.lot_id);
+      if (hasOriginalItems) {
+        const prepCount = await supabase.from('preparations').select('id', { count: 'exact', head: true });
+        const prepNumber = `PREP-${year}-${String((prepCount.count || 0) + 1).padStart(3, '0')}`;
 
-      const { data: prep, error: prepError } = await supabase.from('preparations').insert({
-        prep_number: prepNumber,
-        product_name: '',
-        product_code: '',
-        target_concentration: '',
-        target_volume: 0,
-        unit: 'ml',
-        procedure: '',
-        result: 'pending',
-        notes: '',
-        user_id: profile?.id,
-        user_name: profile?.full_name || '',
-        status: 'draft',
-        usage_slip_id: slip.id,
-      }).select().single();
+        const { data: prep, error: prepError } = await supabase.from('preparations').insert({
+          prep_number: prepNumber,
+          product_name: '',
+          product_code: '',
+          target_concentration: '',
+          target_volume: 0,
+          unit: 'ml',
+          procedure: '',
+          result: 'pending',
+          notes: '',
+          user_id: profile?.id,
+          user_name: profile?.full_name || '',
+          status: 'draft',
+          usage_slip_id: slip.id,
+        }).select().single();
 
-      if (!prepError && prep) {
-        for (const item of validItems) {
-          if (item.is_prepared) continue;
-          const lot = lots.find((l) => l.id === item.lot_id);
-          if (!lot) continue;
-          await supabase.from('preparation_items').insert({
-            preparation_id: prep.id,
-            lot_id: item.lot_id,
-            chemical_id: lot.chemical_id,
-            chemical_name: item.chemical_name,
-            quantity_used: parseFloat(item.quantity),
-            unit: item.unit,
-          });
+        if (!prepError && prep) {
+          for (const item of validItems) {
+            if (item.is_prepared) continue;
+            const lot = lots.find((l) => l.id === item.lot_id);
+            if (!lot) continue;
+            await supabase.from('preparation_items').insert({
+              preparation_id: prep.id,
+              lot_id: item.lot_id,
+              chemical_id: lot.chemical_id,
+              chemical_name: item.chemical_name,
+              quantity_used: parseFloat(item.quantity),
+              unit: item.unit,
+            });
+          }
+          toast({ title: 'Tạo phiếu thành công', description: `${slipNumber} — Đã tự động tạo hồ sơ pha chế ${prepNumber}` });
+        } else {
+          toast({ title: 'Tạo phiếu thành công', description: `${slipNumber} — Lỗi tạo hồ sơ pha chế, vui lòng tạo thủ công` });
         }
-        toast({ title: 'Tạo phiếu thành công', description: `${slipNumber} — Đã tự động tạo hồ sơ pha chế ${prepNumber}` });
       } else {
-        toast({ title: 'Tạo phiếu thành công', description: `${slipNumber} — Lỗi tạo hồ sơ pha chế, vui lòng tạo thủ công` });
+        toast({ title: 'Tạo phiếu thành công', description: `${slipNumber}` });
       }
       setDialogOpen(false);
       await refreshSlips();

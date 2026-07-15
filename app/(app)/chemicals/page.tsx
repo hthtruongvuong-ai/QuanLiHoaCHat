@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
-import { Search, Plus, Pencil, QrCode, ArrowUpDown } from 'lucide-react';
+import { Search, Plus, Pencil, QrCode, ArrowUpDown, Trash2, Loader2 } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,11 +15,22 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { useToast } from '@/hooks/use-toast';
 import { ChemicalForm } from '@/components/chemicals/chemical-form';
 import { QRDialog } from '@/components/chemicals/qr-dialog';
 import { getSupabase } from '@/lib/supabase/singleton';
 import { useAuth } from '@/lib/auth-context';
-import { canManageChemicals } from '@/lib/roles';
+import { canManageChemicals, canDeleteChemical } from '@/lib/roles';
 import { formatNumber } from '@/lib/expiry';
 import type { Chemical, Lot } from '@/lib/types';
 
@@ -41,7 +52,9 @@ type SortField = 'name' | 'code' | 'total_stock' | 'category';
 
 export default function ChemicalsPage() {
   const { profile } = useAuth();
+  const { toast } = useToast();
   const canEdit = profile ? canManageChemicals(profile.role) : false;
+  const canDelete = profile ? canDeleteChemical(profile.role) : false;
 
   const [chemicals, setChemicals] = useState<Chemical[]>([]);
   const [lots, setLots] = useState<Lot[]>([]);
@@ -52,6 +65,9 @@ export default function ChemicalsPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editingChem, setEditingChem] = useState<Chemical | null>(null);
   const [qrChem, setQrChem] = useState<Chemical | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Chemical | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteBlockReason, setDeleteBlockReason] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadData() {
@@ -105,6 +121,50 @@ export default function ChemicalsPage() {
     } else {
       setSortField(field);
       setSortAsc(true);
+    }
+  };
+
+  const handleDeleteClick = async (chem: Chemical) => {
+    setDeleteTarget(chem);
+    setDeleteBlockReason(null);
+    const supabase = getSupabase();
+    const stock = stockByChem[chem.id] || 0;
+    if (stock > 0) {
+      setDeleteBlockReason(`Hóa chất còn tồn kho ${formatNumber(stock)} ${chem.unit}. Không thể xóa.`);
+      return;
+    }
+    const [{ data: prepItems }, { data: slipItems }] = await Promise.all([
+      supabase.from('preparation_items').select('id').eq('chemical_id', chem.id).limit(1),
+      supabase.from('usage_slip_items').select('id,lot_id').eq('chemical_name', chem.name).limit(1),
+    ]);
+    if (prepItems && prepItems.length > 0) {
+      setDeleteBlockReason('Hóa chất đang được sử dụng trong hồ sơ pha chế. Không thể xóa.');
+      return;
+    }
+    if (slipItems && slipItems.length > 0) {
+      setDeleteBlockReason('Hóa chất đang được sử dụng trong phiếu sử dụng. Không thể xóa.');
+      return;
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    const supabase = getSupabase();
+    try {
+      const { data: lots } = await supabase.from('lots').select('id').eq('chemical_id', deleteTarget.id);
+      if (lots && lots.length > 0) {
+        await supabase.from('lots').delete().eq('chemical_id', deleteTarget.id);
+      }
+      const { error } = await supabase.from('chemicals').delete().eq('id', deleteTarget.id);
+      if (error) throw error;
+      toast({ title: 'Đã xóa hóa chất', description: `${deleteTarget.code} — ${deleteTarget.name}` });
+      setDeleteTarget(null);
+      setChemicals(chemicals.filter((c) => c.id !== deleteTarget.id));
+    } catch (err) {
+      toast({ title: 'Lỗi xóa hóa chất', description: err instanceof Error ? err.message : 'Đã có lỗi', variant: 'destructive' });
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -237,6 +297,16 @@ export default function ChemicalsPage() {
                                 <Pencil className="h-4 w-4" />
                               </Button>
                             )}
+                            {canDelete && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                                onClick={() => handleDeleteClick(chem)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
                           </div>
                         </TableCell>
                       </TableRow>
@@ -251,6 +321,36 @@ export default function ChemicalsPage() {
 
       <ChemicalForm chemical={editingChem} open={formOpen} onOpenChange={setFormOpen} />
       <QRDialog chemical={qrChem} open={!!qrChem} onOpenChange={(v) => { if (!v) setQrChem(null); }} />
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={(v) => { if (!v) { setDeleteTarget(null); setDeleteBlockReason(null); } }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Xóa hóa chất?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteBlockReason ? (
+                <span className="text-destructive">{deleteBlockReason}</span>
+              ) : (
+                <>
+                  Hành động này sẽ xóa hóa chất <strong>{deleteTarget?.code} — {deleteTarget?.name}</strong> và toàn bộ lô hàng liên quan. Không thể hoàn tác.
+                </>
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Hủy</AlertDialogCancel>
+            {!deleteBlockReason && (
+              <AlertDialogAction
+                onClick={handleDelete}
+                disabled={deleting}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {deleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Xóa
+              </AlertDialogAction>
+            )}
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
